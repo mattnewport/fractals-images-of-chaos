@@ -5,6 +5,7 @@
 #include "pch.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <iostream>
 #include <tuple>
@@ -26,15 +27,17 @@ auto to_r8g8b8_srgb(rgb x) {
 struct image {
   image(int w, int h) : w_{w}, pixels_{w * h} {}
   rgb operator[](xy xy) const {
-    return pixels_[min(get<1>(xy) * w_ + get<0>(xy),
-                       static_cast<int>(pixels_.size()) - 1)];
+    const auto [x, y] = xy;
+    assert(x < width() && y < height());
+    return pixels_[y * w_ + x];
   }
   rgb &operator[](xy xy) {
-    return pixels_[min(get<1>(xy) * w_ + get<0>(xy),
-                       static_cast<int>(pixels_.size()) - 1)];
+    const auto [x, y] = xy;
+    assert(x < width() && y < height());
+    return pixels_[y * w_ + x];
   }
   int width() const { return w_; }
-  int height() const { return pixels_.size() / w_; }
+  int height() const { return static_cast<int>(pixels_.size()) / w_; }
 
 private:
   int w_;
@@ -55,7 +58,7 @@ void output_ppm(const image &img) {
 auto modf(float x) {
   auto intpart = 0.0f;
   const auto frac = modf(x, &intpart);
-  return tuple{frac, intpart};
+  return tuple{frac, static_cast<int>(intpart)};
 }
 
 auto frac(float x) { return get<0>(modf(x)); }
@@ -66,42 +69,42 @@ auto operator-(tuple<float, float> x, tuple<float, float> y) {
 
 template <typename F>
 void draw_line(tuple<float, float> q0, tuple<float, float> q1, F plot) {
-  const auto steep =
-      abs(get<1>(q1) - get<1>(q0)) > abs(get<0>(q1) - get<0>(q0));
-
-  const auto draw = [](auto p0, auto p1, auto pl) {
+    const auto draw = [](auto p0, auto p1, auto pl) {
     if (get<0>(p0) > get<0>(p1))
       swap(p0, p1);
 
     const auto d = p1 - p0;
     const auto gradient = get<0>(d) == 0.0f ? 1.0f : get<1>(d) / get<0>(d);
 
-    const auto xend = round(get<0>(p0));
-    const auto yend = get<1>(p0) + gradient * (xend - get<0>(p0));
-    const auto xgap = 1.0f - frac(get<0>(p0) + 0.5f);
+    const auto [x0, y0] = p0;
+    const auto [x1, y1] = p1;
+
+    const auto xend = round(x0);
+    const auto yend = fma(gradient, xend - x0, y0);
+    const auto xgap = 1.0f - frac(x0 + 0.5f);
     const auto xpxl1 = static_cast<int>(xend);
     const auto ypxl1 = static_cast<int>(floor(yend));
     pl(xpxl1, ypxl1, (1.0f - frac(yend)) * xgap);
     pl(xpxl1, ypxl1 + 1, frac(yend) * xgap);
 
-    const auto xend2 = round(get<0>(p1));
-    const auto yend2 = get<1>(p1) + gradient * (xend2 - get<0>(p1));
-    const auto xgap2 = frac(get<0>(p1) + 0.5f);
+    const auto xend2 = round(x1);
+    const auto yend2 = fma(gradient, xend2 - x1, y1);
+    const auto xgap2 = frac(x1 + 0.5f);
     const auto xpxl2 = static_cast<int>(xend2);
     const auto ypxl2 = static_cast<int>(floor(yend2));
     pl(xpxl2, ypxl2, (1.0f - frac(yend2)) * xgap2);
     pl(xpxl2, ypxl2 + 1, frac(yend2) * xgap2);
 
-    for (int x = xpxl1 + 1, i = 0; x < xpxl2; ++x, ++i) {
-      const auto intery = yend + i * gradient;
+    for (int x = xpxl1 + 1, i = 1; x < xpxl2; ++x, ++i) {
+      const auto intery = fmaf(gradient, static_cast<float>(i), yend);
       const auto [frac, intpart] = modf(intery);
-      const auto intparti = static_cast<int>(intpart);
-      pl(x, intparti, 1.0f - frac);
-      pl(x, intparti + 1, frac);
+      pl(x, intpart, 1.0f - frac);
+      pl(x, intpart + 1, frac);
     }
   };
 
-  if (steep) {
+    const auto d = q1 - q0;
+  if (abs(get<1>(d)) > abs(get<0>(d))) {
     draw(tuple{get<1>(q0), get<0>(q0)}, tuple{get<1>(q1), get<0>(q1)},
          [plot](int x, int y, float val) { plot(y, x, val); });
   } else {
